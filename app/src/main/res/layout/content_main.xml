@@ -53,5 +53,27 @@
         android:layout_alignParentRight="true"
         android:layout_alignParentEnd="true" />
 
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Berdiri"
+        android:id="@+id/berdiriBtn"
+        android:onClick="onBerdiriBtnClicked"
+        android:layout_below="@+id/zText"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentStart="true"
+        android:layout_marginTop="82dp" />
+
+    <Button
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="DUDUK"
+        android:id="@+id/dudukBtn"
+        android:onClick="onDudukBtnClicked"
+        android:layout_marginTop="34dp"
+        android:layout_below="@+id/berdiriBtn"
+        android:layout_alignParentLeft="true"
+        android:layout_alignParentStart="true" />
+
 
 </RelativeLayout>

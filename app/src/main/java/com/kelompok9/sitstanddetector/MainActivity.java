@@ -35,6 +35,7 @@ import java.util.List;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
+    private String state = null;
     private SensorManager mSensorManager;
     private Sensor mAccelerometer;
     private List<Sensor> sensorList;
@@ -90,17 +91,38 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         recordedData = new ArrayList<AccelerometerData>();
     }
 
-    public void onToggleBtnClicked(View v) {
+    public void onToggleBtnClicked(View v) throws IOException {
         TextView toggleBtn = (TextView) findViewById(R.id.toggleBtn);
+        isRecording = !isRecording;
         if (isRecording) {
+            state = "START";
             toggleBtn.setText("Stop");
+            writeToFile("START\n");
             mSensorManager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
         }
         else {
+            state = "STOP";
             toggleBtn.setText("Start");
             mSensorManager.unregisterListener(this);
         }
-        isRecording = !isRecording;
+    }
+
+    public void onBerdiriBtnClicked(View v) throws IOException {
+        TextView berdiriBtn = (TextView) findViewById(R.id.berdiriBtn);
+        if (state == "STOP") {
+            Toast toast = Toast.makeText(getApplicationContext(), "BERDIRI", Toast.LENGTH_SHORT);
+            toast.show();
+            writeToFile("BERDIRI\n");
+        }
+    }
+
+    public void onDudukBtnClicked(View v) throws IOException {
+        TextView dudukBtn = (TextView) findViewById(R.id.dudukBtn);
+        if (state == "STOP") {
+            Toast toast = Toast.makeText(getApplicationContext(), "DUDUK", Toast.LENGTH_SHORT);
+            toast.show();
+            writeToFile("DUDUK\n");
+        }
     }
 
     @Override
@@ -127,6 +149,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         return super.onOptionsItemSelected(item);
     }
 
+    // temp dulu baru bulk insert? identitas data berdiri atau duduk terdiri atas 10 row data
     @Override
     public void onSensorChanged(SensorEvent event) {
         if(globalDataCounter % 10 == 0)
@@ -195,9 +218,4 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         osw.flush();
         osw.close();
     }
-
-    private void average() {
-
-    }
-
 }
