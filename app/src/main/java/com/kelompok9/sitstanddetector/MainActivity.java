@@ -1,11 +1,13 @@
 package com.kelompok9.sitstanddetector;
 
 import android.content.Context;
+import android.content.ContextWrapper;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
@@ -19,6 +21,15 @@ import android.widget.Toast;
 
 import org.w3c.dom.Text;
 
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -28,12 +39,17 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private Sensor mAccelerometer;
     private List<Sensor> sensorList;
 
+    private ArrayList<AccelerometerData> recordedData;
+
     private TextView xText;
     private TextView yText;
     private TextView zText;
 
-    private ArrayList<AccelerometerData> dataRecord;
     boolean isRecording;
+    int globalDataCounter = 0;
+
+    File sdCard;
+    File directory;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,6 +71,8 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // Sensor
         mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+
+        // x y z generated display
         xText = (TextView) findViewById(R.id.xText);
         yText = (TextView) findViewById(R.id.yText);
         zText = (TextView) findViewById(R.id.zText);
@@ -64,17 +82,23 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 //        for (Sensor sensor : sensorList) {
 //            sensorListTV.append(sensor.getName());
 //        }
+
+        // Path to SDCard
+        sdCard = Environment.getExternalStorageDirectory();
+        directory = new File (sdCard.getAbsolutePath());
+
+        recordedData = new ArrayList<AccelerometerData>();
     }
 
-    public void onMagicBtnClicked(View v) {
-        Log.d("MainActivity", "Yeey tombolnya dipencet");
-        Toast toast;
-        TextView magicTV = (TextView) findViewById(R.id.magicTV);
+    public void onToggleBtnClicked(View v) {
+        TextView toggleBtn = (TextView) findViewById(R.id.toggleBtn);
         if (isRecording) {
-            magicTV.setText("Berhenti merekam");
+            toggleBtn.setText("Stop");
+            mSensorManager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
         }
         else {
-            magicTV.setText("Mulai merekam");
+            toggleBtn.setText("Start");
+            mSensorManager.unregisterListener(this);
         }
         isRecording = !isRecording;
     }
@@ -105,16 +129,42 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     @Override
     public void onSensorChanged(SensorEvent event) {
+        if(globalDataCounter % 10 == 0)
+        {
+            float xSum = 0;
+            float ySum = 0;
+            float zSum = 0;
+            int quantity = 0;
+            for (AccelerometerData data : recordedData) {
+                xSum += data.x;
+                ySum += data.y;
+                zSum += data.z;
+                quantity += 1;
+            }
+            float xAvg = xSum / (float) quantity;
+            float yAvg = ySum / (float) quantity;
+            float zAvg = zSum / (float) quantity;
+
+            String xyzAvg = xAvg + " " + yAvg + " " + zAvg + "\n";
+            try {
+                writeToFile(xyzAvg);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
         float x = event.values[0]; // x
         float y = event.values[1]; // y
         float z = event.values[2]; // z
 
-        xText.setText(" " + x);
-        yText.setText(" " + y);
-        zText.setText(" " + z);
+        AccelerometerData data = new AccelerometerData(x, y, z);
+        recordedData.add(data);
 
-        AccelerometerData ayam = new AccelerometerData(x, y, z);
-        dataRecord.add(ayam);
+        xText.setText("x:\t" + x);
+        yText.setText("y:\t" + y);
+        zText.setText("z:\t" + z);
+
+        globalDataCounter += 1;
     }
 
     @Override
@@ -122,15 +172,32 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
     }
 
-    @Override
-    protected void onResume() {
-        super.onResume();
-        mSensorManager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
+//    @Override
+//    protected void onResume() {
+//        super.onResume();
+//        mSensorManager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+//    }
+//
+//    @Override
+//    protected void onPause() {
+//        super.onPause();
+//        mSensorManager.unregisterListener(this);
+//    }
+
+    // File manipulation functions
+    private void writeToFile(String data) throws IOException {
+        //Now create the file in the above directory and write the contents into it
+        File file = new File(directory, "dataset.txt");
+        FileOutputStream fOut = null;
+        fOut = new FileOutputStream(file, true);
+        OutputStreamWriter osw = new OutputStreamWriter(fOut);
+        osw.append(data);
+        osw.flush();
+        osw.close();
     }
 
-    @Override
-    protected void onPause() {
-        super.onPause();
-        mSensorManager.unregisterListener(this);
+    private void average() {
+
     }
+
 }

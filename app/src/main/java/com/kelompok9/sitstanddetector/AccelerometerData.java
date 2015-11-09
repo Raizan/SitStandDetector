@@ -1,9 +1,7 @@
 package com.kelompok9.sitstanddetector;
 
-import java.util.ArrayList;
-
 /**
- * Created by Reisuke on 11/9/2015.
+ * Created by Reisuke on 11/10/2015.
  */
 public class AccelerometerData {
 
@@ -11,7 +9,7 @@ public class AccelerometerData {
     public float y;
     public float z;
 
-    public AccelerometerData(float x, float y, float z){
+    public AccelerometerData(float x, float y, float z) {
         this.x = x;
         this.y = y;
         this.z = z;
