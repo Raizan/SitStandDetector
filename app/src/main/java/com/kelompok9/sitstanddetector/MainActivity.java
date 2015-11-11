@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -97,7 +98,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (isRecording) {
             state = "START";
             toggleBtn.setText("Stop");
-            writeToFile("START\n");
+            writeToFile("dataset.txt", "START\n");
             mSensorManager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_FASTEST);
         }
         else {
@@ -112,7 +113,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (state == "STOP") {
             Toast toast = Toast.makeText(getApplicationContext(), "BERDIRI", Toast.LENGTH_SHORT);
             toast.show();
-            writeToFile("BERDIRI\n");
+            writeToFile("dataset.txt", "BERDIRI\n");
         }
     }
 
@@ -121,8 +122,13 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         if (state == "STOP") {
             Toast toast = Toast.makeText(getApplicationContext(), "DUDUK", Toast.LENGTH_SHORT);
             toast.show();
-            writeToFile("DUDUK\n");
+            writeToFile("dataset.txt", "DUDUK\n");
         }
+    }
+
+    public void onReadBtnClicked(View v){
+        TextView readBtn = (TextView) findViewById(R.id.readBtn);
+        labelByUser();
     }
 
     @Override
@@ -152,8 +158,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     // temp dulu baru bulk insert? identitas data berdiri atau duduk terdiri atas 10 row data
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if(globalDataCounter % 10 == 0)
-        {
+        float x = event.values[0]; // x
+        float y = event.values[1]; // y
+        float z = event.values[2]; // z
+
+        xText.setText("x:\t" + x);
+        yText.setText("y:\t" + y);
+        zText.setText("z:\t" + z);
+
+        AccelerometerData setData = new AccelerometerData(x, y, z);
+        recordedData.add(setData);
+
+        if (globalDataCounter % 10 == 0) {
             float xSum = 0;
             float ySum = 0;
             float zSum = 0;
@@ -168,24 +184,14 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
             float yAvg = ySum / (float) quantity;
             float zAvg = zSum / (float) quantity;
 
-            String xyzAvg = xAvg + " " + yAvg + " " + zAvg + "\n";
+
+            String prepare = xAvg + " " + yAvg + " " + zAvg + "\n";
             try {
-                writeToFile(xyzAvg);
+                writeToFile("dataset.txt", prepare);
             } catch (IOException e) {
                 e.printStackTrace();
             }
         }
-
-        float x = event.values[0]; // x
-        float y = event.values[1]; // y
-        float z = event.values[2]; // z
-
-        AccelerometerData data = new AccelerometerData(x, y, z);
-        recordedData.add(data);
-
-        xText.setText("x:\t" + x);
-        yText.setText("y:\t" + y);
-        zText.setText("z:\t" + z);
 
         globalDataCounter += 1;
     }
@@ -208,14 +214,52 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 //    }
 
     // File manipulation functions
-    private void writeToFile(String data) throws IOException {
+    private void writeToFile(String fileName, String data) throws IOException {
         //Now create the file in the above directory and write the contents into it
-        File file = new File(directory, "dataset.txt");
+        File file = new File(directory, fileName);
         FileOutputStream fOut = null;
         fOut = new FileOutputStream(file, true);
         OutputStreamWriter osw = new OutputStreamWriter(fOut);
         osw.append(data);
         osw.flush();
         osw.close();
+    }
+
+    private void labelByUser() {
+        //Get the text file
+        File file = new File(directory, "dataset.txt");
+
+        //Read text from file
+        StringBuilder text = new StringBuilder();
+
+        try {
+            BufferedReader br = new BufferedReader(new FileReader(file));
+            String line;
+
+            float xSum = 0;
+            float ySum = 0;
+            float zSum = 0;
+            int quantity = 0;
+            while ((line = br.readLine()) != null) {
+                String arrayString[] = line.split("\\s+");
+                if (arrayString[0].equals("START")) {
+                    continue;
+                } else if (arrayString[0].equals("NaN")) {
+                    continue;
+                } else if (arrayString[0].equals("BERDIRI") || arrayString[0].equals("DUDUK")) {
+                    // calculate average
+                    // writeToFile("labelledDataSet.txt", xyzSum + " " + arrayString[0])
+                } else {
+                    xSum += Float.valueOf(arrayString[0]);
+                    ySum += Float.valueOf(arrayString[1]);
+                    zSum += Float.valueOf(arrayString[2]);
+                }
+                quantity += 1;
+            }
+            br.close();
+        }
+        catch (IOException e) {
+            //You'll need to add proper error handling here
+        }
     }
 }
