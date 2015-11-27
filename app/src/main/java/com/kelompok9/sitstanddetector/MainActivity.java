@@ -1,13 +1,13 @@
 package com.kelompok9.sitstanddetector;
 
 import android.content.Context;
-import android.content.ContextWrapper;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.StrictMode;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
@@ -19,30 +19,23 @@ import android.view.MenuItem;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import org.w3c.dom.Text;
-
-import java.io.BufferedInputStream;
 import java.io.BufferedReader;
-import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.FileReader;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
-import java.math.BigDecimal;
-import java.net.HttpURLConnection;
-import java.net.URL;
+import java.nio.Buffer;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 
-import de.daslaboratorium.machinelearning.BayesClassifier;
-import de.daslaboratorium.machinelearning.Classification;
-import de.daslaboratorium.machinelearning.Classifier;
+import org.apache.http.HttpResponse;
+import org.apache.http.client.ClientProtocolException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.methods.HttpGet;
+import org.apache.http.impl.client.DefaultHttpClient;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
@@ -52,6 +45,7 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private List<Sensor> sensorList;
 
     private ArrayList<AccelerometerData> recordedData;
+    private ArrayList<StringBuilder> prepareString;
 
     private TextView xText;
     private TextView yText;
@@ -62,10 +56,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     int globalDataCounter = 0;
     int resettableDataCounter = 0;
 
+    final int windowSize = 10;
+
     File sdCard;
     File directory;
-
-    Classifier<String, String> bayes;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -103,13 +97,18 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         directory = new File (sdCard.getAbsolutePath());
 
         recordedData = new ArrayList<AccelerometerData>();
+        prepareString = new ArrayList<StringBuilder>();
 
         // Naive bayes
-        bayes = new BayesClassifier<String, String>();
         // Forget learned data after reaching 500 data milestone
         // bayes.setMemoryCapacity(500);
         // Initial state
         state = "STOP";
+
+        if (android.os.Build.VERSION.SDK_INT > 9) {
+            StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
+            StrictMode.setThreadPolicy(policy);
+        }
     }
 
     public void onToggleBtnClicked(View v) throws IOException {
@@ -205,87 +204,51 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
         if (resettableDataCounter == 20)
         {
-            float xSumAvg = 0;
-            float ySumAvg = 0;
-            float zSumAvg = 0;
-            // calculate avg
-            for (AccelerometerData dt : recordedData) {
-                xSumAvg += dt.x;
-                ySumAvg += dt.y;
-                zSumAvg += dt.z;
+            MovingAverage maX = new MovingAverage(windowSize);
+            MovingAverage maY = new MovingAverage(windowSize);
+            MovingAverage maZ = new MovingAverage(windowSize);
+            for (AccelerometerData data : recordedData) {
+                maX.newNum(data.x);
+                maY.newNum(data.y);
+                maZ.newNum(data.z);
+
+                StringBuilder prepare = new StringBuilder();
+                prepare.append(maX.getAvg());
+                prepare.append(" ");
+                prepare.append(maY.getAvg());
+                prepare.append(" ");
+                prepare.append(maZ.getAvg());
+                prepare.append("\n");
+
+                prepareString.add(prepare);
+
             }
-
-            float xAvg = xSumAvg / (float) recordedData.size();
-            float yAvg = ySumAvg / (float) recordedData.size();
-            float zAvg = zSumAvg / (float) recordedData.size();
-
-            // analyze and display on TextView Status
-            String avgNormalized = normalize(xAvg, yAvg, zAvg);
-            String category = "";
-            if (state.equals("DETECT")) {
-                category = detect(avgNormalized);
-            } else if (state.equals("DETECT-OBS")) {
-                String arrayString[] = avgNormalized.split("\\s");
-                if (Float.valueOf(arrayString[1]) == 1.0) {
-                    category = "BERDIRI";
-                }
-                else if (Float.valueOf(arrayString[2]) == 1.0) {
-                    category = "DUDUK";
-                }
-            }
-
-            Toast toast = Toast.makeText(getApplicationContext(), "Status: " + category, Toast.LENGTH_SHORT);
-            toast.show();
-            statusText.setText("Status: " + category);
-
-            String prepare = avgNormalized + " " + category;
-            try {
-                writeToFile("labelledDataSet.txt", prepare);
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-
-            // reset state
-            recordedData.clear();
             resettableDataCounter = 0;
-            state = "STOP";
-        }
+            List<AccelerometerData> sublist = recordedData.subList(0, 9);
+            sublist.clear();
 
-        if (state.equals("DETECT") || state.equals("DETECT-OBS")) {
-            AccelerometerData recordData = new AccelerometerData(x, y, z);
-            recordedData.add(recordData);
-
-            resettableDataCounter += 1;
-        }
-        else if (state.equals("START")){
-            // Write RAW accelerometer data to file
-            String prepare = x + " " + y + " " + z + "\n";
-            try {
-                writeToFile("dataset.txt", prepare);
-            } catch (IOException e) {
-                e.printStackTrace();
+            if(state.equals("START")) {
+                for (StringBuilder str : prepareString) {
+                    try {
+                        writeToFile("dataset.txt", str.toString());
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
+                }
+                prepareString.clear();
             }
         }
+        resettableDataCounter += 1;
 
-        globalDataCounter += 1;
+        AccelerometerData newData = new AccelerometerData(x, y, z);
+        recordedData.add(newData);
+
     }
 
     @Override
     public void onAccuracyChanged(Sensor sensor, int accuracy) {
 
     }
-
-//    @Override
-//    protected void onResume() {
-//        super.onResume();
-//        mSensorManager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
-//    }
-//
-//    @Override
-//    protected void onPause() {
-//        super.onPause();
-//        mSensorManager.unregisterListener(this);
-//    }
 
     // File manipulation functions
     private void writeToFile(String fileName, String data) throws IOException {
@@ -301,12 +264,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
 
 
     private String normalize(float xAvg, float yAvg, float zAvg) {
-        float maxValue = Math.max(Math.max(Math.abs(xAvg), Math.abs(yAvg)), Math.abs(zAvg));
-        float xAvgNormal = Math.abs(xAvg) / maxValue;
-        float yAvgNormal = Math.abs(yAvg) / maxValue;
-        float zAvgNormal = Math.abs(zAvg) / maxValue;
-
-        return xAvgNormal + " " + yAvgNormal + " " + zAvgNormal;
+//        float maxValue = Math.max(Math.max(Math.abs(xAvg), Math.abs(yAvg)), Math.abs(zAvg));
+//        float xAvgNormal = Math.abs(xAvg) / maxValue;
+//        float yAvgNormal = Math.abs(yAvg) / maxValue;
+//        float zAvgNormal = Math.abs(zAvg) / maxValue;
+//        return xAvgNormal + " " + yAvgNormal + " " + zAvgNormal;
+        return xAvg + " " + yAvg + " " + zAvg;
     }
 
     private void labelByUser() {
@@ -375,7 +338,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
                     continue;
                 } else {
                     String categorized = categorize(arrayString);
-                    bayes.learn(arrayString[3], Arrays.asList(categorized.split("\\s")));
                 }
             }
             Toast toast = Toast.makeText(getApplicationContext(), "Bayes re-learned", Toast.LENGTH_SHORT);
@@ -393,7 +355,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         float threshold = (float) 0.4;
         if (Float.valueOf(arrayString[0]) >= threshold) {
             categorized.append("x ");
-
         }
         if (Float.valueOf(arrayString[1]) >= threshold) {
             categorized.append("y ");
@@ -408,6 +369,34 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     }
 
     private String detect(String avgNormalized) {
-        return bayes.classify(Arrays.asList(avgNormalized.split("\\s"))).getCategory();
+        return "ayam";
+    }
+
+    private void makeGetRequest() {
+        HttpClient client = new DefaultHttpClient();
+        HttpGet request = new HttpGet("https://sensor-knn-webservice-raizan.c9users.io/");
+        // replace with your url
+
+        HttpResponse response;
+        try {
+            response = client.execute(request);
+
+            BufferedReader in = new BufferedReader(new InputStreamReader(
+                    response.getEntity().getContent()));
+
+            String line = in.readLine();
+
+            Toast toast = Toast.makeText(getApplicationContext(), line, Toast.LENGTH_SHORT);
+            toast.show();
+
+            Log.d("Response of GET request", response.toString());
+        } catch (ClientProtocolException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        } catch (IOException e) {
+            // TODO Auto-generated catch block
+            e.printStackTrace();
+        }
+
     }
 }
