@@ -8,6 +8,7 @@ import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.StrictMode;
+import android.speech.tts.TextToSpeech;
 import android.support.design.widget.FloatingActionButton;
 import android.support.design.widget.Snackbar;
 import android.support.v7.app.AppCompatActivity;
@@ -26,22 +27,30 @@ import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.io.UnsupportedEncodingException;
 import java.nio.Buffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Locale;
 
 import org.apache.http.HttpResponse;
 import org.apache.http.client.ClientProtocolException;
 import org.apache.http.client.HttpClient;
 import org.apache.http.client.methods.HttpGet;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
 import org.apache.http.impl.client.DefaultHttpClient;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 public class MainActivity extends AppCompatActivity implements SensorEventListener {
 
     private String state = null;
     private SensorManager mSensorManager;
     private Sensor mAccelerometer;
+    private Sensor mProximity;
+
     private List<Sensor> sensorList;
 
     private ArrayList<AccelerometerData> recordedData;
@@ -52,9 +61,12 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     private TextView zText;
     private TextView statusText;
 
+    private TextToSpeech tts;
+
     boolean isRecording;
-    int globalDataCounter = 0;
+    int detectDataCounter = 0;
     int resettableDataCounter = 0;
+    String proximityValue = "";
 
     final int windowSize = 10;
 
@@ -81,9 +93,10 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // Sensor
         mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
         mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        mProximity = mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
         // Register sensor
         mSensorManager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
-
+        mSensorManager.registerListener(this, mProximity, SensorManager.SENSOR_DELAY_NORMAL);
 
         // x y z generated display
         xText = (TextView) findViewById(R.id.xText);
@@ -104,6 +117,15 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         // bayes.setMemoryCapacity(500);
         // Initial state
         state = "STOP";
+
+        tts = new TextToSpeech(getApplicationContext(), new TextToSpeech.OnInitListener() {
+            @Override
+            public void onInit(int status) {
+                if (status != TextToSpeech.ERROR) {
+                    tts.setLanguage(Locale.US);
+                }
+            }
+        });
 
         if (android.os.Build.VERSION.SDK_INT > 9) {
             StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
@@ -145,27 +167,6 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         }
     }
 
-    public void onLabelBtnClicked(View v) throws IOException {
-        TextView labelBtn = (TextView) findViewById(R.id.labelBtn);
-        Toast toast = Toast.makeText(getApplicationContext(), "labelledDataSet.txt updated", Toast.LENGTH_SHORT);
-        toast.show();
-        labelByUser();
-    }
-
-    public void onDetectBtnClicked(View v) throws IOException {
-        TextView detectBtn = (TextView) findViewById(R.id.detectBtn);
-        state = "DETECT";
-    }
-
-    public void onDetectObsBtnClicked(View v) throws IOException {
-        TextView detectObsBtn = (TextView) findViewById(R.id.detectObsBtn);
-        state = "DETECT-OBS";
-    }
-
-    public void onResetBtnClicked(View v) throws IOException {
-        TextView resetBtn = (TextView) findViewById(R.id.resetBtn);
-        reset();
-    }
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
@@ -194,55 +195,111 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
     // temp dulu baru bulk insert? identitas data berdiri atau duduk terdiri atas 10 row data
     @Override
     public void onSensorChanged(SensorEvent event) {
-        float x = event.values[0]; // x
-        float y = event.values[1]; // y
-        float z = event.values[2]; // z
+        float x = (float) 0.0;
+        float y = (float) 0.0;
+        float z = (float) 0.0;
 
-        xText.setText("x:\t" + x);
-        yText.setText("y:\t" + y);
-        zText.setText("z:\t" + z);
+        if(event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
+            x = event.values[0]; // x
+            y = event.values[1]; // y
+            z = event.values[2]; // z
+        }
 
-        if (resettableDataCounter == 20)
-        {
-            MovingAverage maX = new MovingAverage(windowSize);
-            MovingAverage maY = new MovingAverage(windowSize);
-            MovingAverage maZ = new MovingAverage(windowSize);
-            for (AccelerometerData data : recordedData) {
-                maX.newNum(data.x);
-                maY.newNum(data.y);
-                maZ.newNum(data.z);
-
-                StringBuilder prepare = new StringBuilder();
-                prepare.append(maX.getAvg());
-                prepare.append(" ");
-                prepare.append(maY.getAvg());
-                prepare.append(" ");
-                prepare.append(maZ.getAvg());
-                prepare.append("\n");
-
-                prepareString.add(prepare);
-
+        if(event.sensor.getType() == Sensor.TYPE_PROXIMITY){
+            float value = event.values[0];
+            if (event.values[0] == 0.0) {
+                proximityValue = "MIN";
+                state = "DETECT";
             }
-            resettableDataCounter = 0;
-            List<AccelerometerData> sublist = recordedData.subList(0, 9);
-            sublist.clear();
-
-            if(state.equals("START")) {
-                for (StringBuilder str : prepareString) {
-                    try {
-                        writeToFile("dataset.txt", str.toString());
-                    } catch (IOException e) {
-                        e.printStackTrace();
-                    }
-                }
-                prepareString.clear();
+            else {
+                proximityValue = "MAX";
+                state = "STOP";
             }
         }
+
+        if (state.equals("DETECT")) {
+            if (resettableDataCounter == 50) {
+                MovingAverage maX = new MovingAverage(windowSize);
+                MovingAverage maY = new MovingAverage(windowSize);
+                MovingAverage maZ = new MovingAverage(windowSize);
+                float xSum = (float) 0.0;
+                float ySum = (float) 0.0;
+                float zSum = (float) 0.0;
+                int qty = 0;
+                for (AccelerometerData data : recordedData) {
+                    maX.newNum(data.x);
+                    maY.newNum(data.y);
+                    maZ.newNum(data.z);
+
+                    xSum += maX.getAvg();
+                    ySum += maY.getAvg();
+                    zSum += maZ.getAvg();
+
+                    qty += 1;
+                }
+                float xAvg = xSum / (float) qty;
+                float yAvg = ySum / (float) qty;
+                float zAvg = zSum / (float) qty;
+
+                JSONObject object = new JSONObject();
+                try {
+                    object.put("command", "detect");
+                    object.put("x", xAvg);
+                    object.put("y", yAvg);
+                    object.put("z", zAvg);
+                } catch (JSONException e) {
+                    e.printStackTrace();
+                }
+
+                try {
+                    makePostRequest(object);
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+                resettableDataCounter = 0;
+            }
+        } else {
+            if (resettableDataCounter == 20) {
+                MovingAverage maX = new MovingAverage(windowSize);
+                MovingAverage maY = new MovingAverage(windowSize);
+                MovingAverage maZ = new MovingAverage(windowSize);
+                for (AccelerometerData data : recordedData) {
+                    maX.newNum(data.x);
+                    maY.newNum(data.y);
+                    maZ.newNum(data.z);
+
+                    StringBuilder prepare = new StringBuilder();
+                    prepare.append(maX.getAvg());
+                    prepare.append(" ");
+                    prepare.append(maY.getAvg());
+                    prepare.append(" ");
+                    prepare.append(maZ.getAvg());
+                    prepare.append("\n");
+
+                    prepareString.add(prepare);
+
+                }
+                resettableDataCounter = 0;
+                List<AccelerometerData> sublist = recordedData.subList(0, 9);
+                sublist.clear();
+
+                if (state.equals("START")) {
+                    for (StringBuilder str : prepareString) {
+                        try {
+                            writeToFile("dataset.txt", str.toString());
+                        } catch (IOException e) {
+                            e.printStackTrace();
+                        }
+                    }
+                    prepareString.clear();
+                }
+            }
+        }
+
         resettableDataCounter += 1;
 
         AccelerometerData newData = new AccelerometerData(x, y, z);
         recordedData.add(newData);
-
     }
 
     @Override
@@ -262,114 +319,19 @@ public class MainActivity extends AppCompatActivity implements SensorEventListen
         osw.close();
     }
 
+    private void makePostRequest(JSONObject object) throws IOException {
+        HttpClient client = new DefaultHttpClient();
+        HttpPost request = new HttpPost("https://sensor-knn-webservice-raizan.c9users.io/");
+        String message = object.toString();
+        request.setEntity(new StringEntity(message, "UTF8"));
+        request.setHeader("Content-type", "application/json");
+        HttpResponse response = client.execute(request);
 
-    private String normalize(float xAvg, float yAvg, float zAvg) {
-//        float maxValue = Math.max(Math.max(Math.abs(xAvg), Math.abs(yAvg)), Math.abs(zAvg));
-//        float xAvgNormal = Math.abs(xAvg) / maxValue;
-//        float yAvgNormal = Math.abs(yAvg) / maxValue;
-//        float zAvgNormal = Math.abs(zAvg) / maxValue;
-//        return xAvgNormal + " " + yAvgNormal + " " + zAvgNormal;
-        return xAvg + " " + yAvg + " " + zAvg;
-    }
+        BufferedReader in = new BufferedReader(new InputStreamReader(
+                response.getEntity().getContent()));
 
-    private void labelByUser() {
-        //Get the text file
-        File file = new File(directory, "dataset.txt");
-
-        //Read text from file
-        StringBuilder text = new StringBuilder();
-
-        try {
-            BufferedReader br = new BufferedReader(new FileReader(file));
-            String line;
-
-            float x = 0;
-            float y = 0;
-            float z = 0;
-            int quantity = 0;
-
-            ArrayList<AccelerometerData> avgData = new ArrayList<AccelerometerData>();
-
-            while ((line = br.readLine()) != null) {
-                String arrayString[] = line.split("\\s+");
-                if (arrayString[0].equals("START")) {
-                    continue;
-                } else if (arrayString[0].equals("NaN")) {
-                    continue;
-                } else if (arrayString[0].equals("BERDIRI") || arrayString[0].equals("DUDUK")) {
-                    // calculate average
-                    float xAvg = x / (float) quantity;
-                    float yAvg = y / (float) quantity;
-                    float zAvg = z / (float) quantity;
-                    quantity = 0;
-                    x = 0;
-                    y = 0;
-                    z = 0;
-                    String avgNormalized = normalize(xAvg, yAvg, zAvg);
-                    String prepare = avgNormalized + " " + arrayString[0] + "\n";
-
-                    writeToFile("labelledDataSet.txt", prepare);
-                } else {
-                    x += Float.valueOf(arrayString[0]);
-                    y += Float.valueOf(arrayString[1]);
-                    z += Float.valueOf(arrayString[2]);
-                    quantity += 1;
-                }
-            }
-            br.close();
-        }
-        catch (IOException e) {
-            //You'll need to add proper error handling here
-        }
-    }
-
-    private void reset() {
-        File file = new File(directory, "labelledDataSet.txt");
-
-        //Read text from file
-        StringBuilder text = new StringBuilder();
-
-        try {
-            BufferedReader br = new BufferedReader(new FileReader(file));
-            String line;
-            while ((line = br.readLine()) != null) {
-                String arrayString[] = line.split("\\s+");
-                if (arrayString[0].equals("NaN")) {
-                    continue;
-                } else {
-                    String categorized = categorize(arrayString);
-                }
-            }
-            Toast toast = Toast.makeText(getApplicationContext(), "Bayes re-learned", Toast.LENGTH_SHORT);
-            toast.show();
-            br.close();
-        }
-        catch (IOException e) {
-            //You'll need to add proper error handling here
-        }
-    }
-
-    private String categorize(String[] arrayString) {
-        // hi low
-        StringBuilder categorized = new StringBuilder();
-        float threshold = (float) 0.4;
-        if (Float.valueOf(arrayString[0]) >= threshold) {
-            categorized.append("x ");
-        }
-        if (Float.valueOf(arrayString[1]) >= threshold) {
-            categorized.append("y ");
-        }
-        if (Float.valueOf(arrayString[2]) >= threshold) {
-            categorized.append(" z");
-        }
-        Toast toast = Toast.makeText(getApplicationContext(), categorized.toString(), Toast.LENGTH_SHORT);
-        toast.show();
-
-        return categorized.toString();
-    }
-
-    private String detect(String avgNormalized) {
-        return "ayam";
+        String line = in.readLine();
+        tts.speak(line, TextToSpeech.QUEUE_FLUSH, null);
     }
 
     private void makeGetRequest() {
